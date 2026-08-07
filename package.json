@@ -1,0 +1,13 @@
+{
+  "name": "minecraft-ai-bot",
+  "version": "1.0.0",
+  "description": "Aternos AI Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mineflayer": "^4.20.0"
+  }
+}
