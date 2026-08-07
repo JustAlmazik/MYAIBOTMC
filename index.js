@@ -20,15 +20,18 @@ let basePosition = null;
 let isBusy = false;
 let currentTarget = null;
 
+// Список враждебных мобов, которых нужно атаковать в первую очередь
+const hostileMobs = ['zombie', 'skeleton', 'spider', 'creeper', 'witch', 'enderman', 'zombified_piglin', 'husk', 'stray'];
+
 bot.on('spawn', () => {
   console.log('Бот успешно вошел на сервер!');
   if (!basePosition) {
     basePosition = bot.entity.position.clone();
   }
-  bot.chat('Всем привет! Я абсолютный хищник, зомби теперь не уйдут от возмездия!');
+  bot.chat('Всем привет! Я абсолютный хищник. Вижу врага — нет ничего важнее, иду убивать!');
 });
 
-// Система самообороны (если бота кто-то ударил)
+// Если бота ударили — это враг номер один
 bot.on('hurt', () => {
   if (!bot.entity) return;
   const attacker = bot.nearestEntity((e) => 
@@ -40,15 +43,16 @@ bot.on('hurt', () => {
   if (attacker) {
     botState = 'hunting';
     currentTarget = attacker;
-    bot.chat(`Ай, крыса! Получай по морде, ${attacker.mobType || 'враг'}!`);
+    isBusy = false;
+    bot.chat(`Ах ты крыса! Получай по морде, ${attacker.mobType || 'враг'}!`);
   }
 });
 
-// Основной цикл поведения
+// Основной цикл поведения (с высшим приоритетом для врагов)
 setInterval(async () => {
   if (!bot.entity) return;
 
-  // Автоматическая еда (если голоден и есть мясо в инвентаре)
+  // 0. АВТОМАТИЧЕСКАЯ ЕДА (если голоден и есть мясо)
   if (bot.food < 18) {
     const foodItem = bot.inventory.items().find(i => 
       i.name.includes('porkchop') || 
@@ -62,17 +66,31 @@ setInterval(async () => {
         await bot.equip(foodItem, 'hand');
         await bot.consume();
         bot.chat('Подкрепился мясцом!');
-      } catch (err) {
-        // Ошибка еды игнорируется
-      }
+      } catch (err) {}
     }
   }
 
-  if (isBusy) return;
+  // --- ВЫСШИЙ ПРИОРИТЕТ: ПОИСК ВРАГОВ В РАДИУСЕ 100 БЛОКОВ ---
+  // Если бот следует за игроком по команде !следуй, можно сделать исключение, но сейчас враги важнее всего
+  if (botState !== 'following') {
+    const enemy = bot.nearestEntity((e) => {
+      if (e.type !== 'mob') return false;
+      // Проверяем, есть ли моб в списке враждебных или это кто-то, кто рядом
+      const isHostile = hostileMobs.some(m => e.name && e.name.toLowerCase().includes(m)) || 
+                        (e.mobType && hostileMobs.some(m => e.mobType.toLowerCase().includes(m)));
+      return isHostile && e.position.distanceTo(bot.entity.position) <= 100;
+    });
 
-  // Если в режиме охоты и есть цель (исправленный ближний бой без кружения)
+    if (enemy) {
+      botState = 'hunting';
+      currentTarget = enemy;
+      isBusy = false; // Прерываем любые другие задачи (рубку дерева и т.д.)
+    }
+  }
+
+  // Если находимся в режиме охоты и есть актуальная цель
   if (botState === 'hunting' && currentTarget) {
-    if (!currentTarget.isValid || currentTarget.position.distanceTo(bot.entity.position) > 100) {
+    if (!currentTarget.isValid || currentTarget.position.distanceTo(bot.entity.position) > 120) {
       botState = 'wandering';
       currentTarget = null;
       return;
@@ -91,21 +109,22 @@ setInterval(async () => {
         bot.setControlState('jump', false);
       }
     } else {
-      // Подошли вплотную — останавливаемся и бьем без остановки
+      // Ближний бой вплотную без кружения
       bot.setControlState('forward', false);
       bot.setControlState('sprint', false);
       bot.setControlState('jump', false);
       
       try {
         bot.attack(currentTarget);
-      } catch (e) {
-        // Игнорируем кулдаун атаки
-      }
+      } catch (e) {}
     }
     return;
   }
 
-  // Свободное блуждание
+  // Если заняты другими делами (рубим дерево и т.д.) — пропускаем свободный ход
+  if (isBusy) return;
+
+  // Свободное блуждание, если врагов нет
   if (botState === 'wandering') {
     if (Math.random() < 0.2) {
       bot.look(Math.random() * Math.PI * 2, 0);
@@ -121,21 +140,7 @@ setInterval(async () => {
       bot.setControlState('jump', false);
     }
 
-    // Ищем мобов в радиусе 80 блоков для охоты
-    const victim = bot.nearestEntity((e) => 
-      e.type === 'mob' && 
-      e.position.distanceTo(bot.entity.position) <= 80 &&
-      e.mobType !== 'ArmorStand'
-    );
-
-    if (victim) {
-      botState = 'hunting';
-      currentTarget = victim;
-      bot.chat(`Заметил цель (${victim.mobType || 'моб'}), бегу уничтожать!`);
-      return;
-    }
-
-    // Проверяем игроков для приветствия
+    // Проверяем игроков для приветствия (только если нет врагов)
     const playerEntries = Object.values(bot.players).filter(p => p.username !== bot.username && p.entity);
     if (playerEntries.length > 0 && Math.random() < 0.15) {
       const targetPlayer = playerEntries[0].entity;
@@ -146,7 +151,7 @@ setInterval(async () => {
       }
     }
 
-    // Если мобов нет, пробуем поискать дерево
+    // Если всё тихо, можно поискать дерево
     if (Math.random() < 0.1) {
       isBusy = true;
       bot.setControlState('forward', false);
@@ -161,9 +166,10 @@ setInterval(async () => {
 function handleApproachPlayer(targetPlayer) {
   isBusy = true;
   const approachInterval = setInterval(() => {
-    if (!targetPlayer || !bot.entity || botState !== 'approaching') {
+    // Если появился враг, сразу прерываем подход к игроку!
+    if (botState === 'hunting' || !targetPlayer || !bot.entity || botState !== 'approaching') {
       clearInterval(approachInterval);
-      botState = 'wandering';
+      if (botState !== 'hunting') botState = 'wandering';
       isBusy = false;
       return;
     }
@@ -206,7 +212,8 @@ async function autoSurvivalLoop() {
 function moveToPosition(targetPos) {
   return new Promise((resolve) => {
     const moveInterval = setInterval(() => {
-      if (!bot.entity) {
+      // Если появился враг во время рубки дерева — бросаем дерево нафиг и бежим убивать!
+      if (botState === 'hunting' || !bot.entity) {
         clearInterval(moveInterval);
         resolve();
         return;
