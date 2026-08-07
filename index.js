@@ -18,11 +18,39 @@ const bot = mineflayer.createBot({
 let following = false;
 let followInterval = null;
 
-bot.on('spawn', () => {
+// При появлении на сервере
+bot.on('spawn', async () => {
   console.log('Бот успешно вошел на сервер!');
-  bot.chat('Всем здарова! Напиши !следуй или "добывай доски".');
+  bot.chat('Всем привет! Я в деле. Копаю землю и охочусь на овец!');
+
+  // Добываем пару блоков земли сразу после спавна
+  for (let i = 0; i < 2; i++) {
+    try {
+      const dirt = bot.findBlock({ 
+        matching: (b) => b && (b.name === 'dirt' || b.name === 'grass_block'), 
+        maxDistance: 5 
+      });
+      if (dirt) {
+        await bot.dig(dirt);
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    } catch (err) {
+      console.log('Не удалось срубить блок земли при спавне');
+    }
+  }
 });
 
+// Периодическая проверка овец в радиусе 20 блоков (каждые 5 секунд)
+setInterval(() => {
+  if (!bot.entity) return;
+  const sheep = bot.nearestEntity((e) => e.type === 'mob' && e.mobType === 'Sheep' && e.position.distanceTo(bot.entity.position) < 20);
+  if (sheep) {
+    bot.lookAt(sheep.position);
+    bot.attack(sheep);
+  }
+}, 5000);
+
+// Обработка чата и команд
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
 
@@ -67,7 +95,7 @@ bot.on('chat', async (username, message) => {
             bot.chat('Не получилось срубить дерево!');
             return;
           }
-          bot.chat('Готово, доски мои!');
+          bot.chat('Готово, дерево мое!');
         });
       }
     }, 200);
