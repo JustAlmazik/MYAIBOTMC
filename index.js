@@ -2,75 +2,57 @@ const mineflayer = require('mineflayer');
 const express = require('express');
 const axios = require('axios');
 
-// 1. Веб-сервер для UptimeRobot, чтобы хостинг не усыпал
+// Веб-сервер для UptimeRobot, чтобы Render не усыплял бота
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('Bot is online!'));
+app.listen(PORT, () => console.log(`Web server on port ${PORT}`));
 
-app.get('/', (req, res) => {
-  res.send('Bot is alive and running!');
-});
-
-app.listen(PORT, () => {
-  console.log(`Web server is listening on port ${PORT}`);
-});
-
-// 2. Подключение бота к Forge/Пиратскому Aternos серверу
+// Настройки подключения
 const bot = mineflayer.createBot({
-  host: 'atmosph_survival.aternos.me',
-  port: 25565, 
+  host: 'aiservervanillalol.aternos.me',
+  port: 25565,
   username: 'AIBot',
-  version: '1.20.1', // Убедись, что версия здесь точь-в-точь как на сервере
-  auth: 'offline', // Обязательно для пиратских серверов (cracked)
-  checkTimeoutInterval: 60000 // Увеличиваем таймаут ожидания, чтобы Forge успел прогрузить бота
+  version: '1.20.1',
+  auth: 'offline' // Важно для пиратского сервера
 });
 
 bot.on('spawn', () => {
   console.log('Бот успешно зашел на сервер!');
-  bot.chat('Всем привет! Я ИИ-компаньон, пишите !ai [текст] для общения со мной.');
+  bot.chat('Всем привет! Я ИИ-бот. Пишите !ai [вопрос] чтобы пообщаться.');
 });
 
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
-  
+
   if (message.startsWith('!ai')) {
     const prompt = message.replace('!ai', '').trim();
     if (!prompt) return;
 
     try {
-      // Запрос к API Groq (модель Llama 3.3 70B)
       const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'Ты друг-игрок в Minecraft на выживании. Общайся коротко, дружелюбно и по-русски, как обычный пацан в чате игры. Не пиши слишком длинно.' },
-          { role: 'user', content: `${username} говорит тебе: ${prompt}` }
-        ],
+          { role: 'system', content: 'Ты друг-игрок в Minecraft. Общайся дружелюбно, коротко и по-русски.' },
+          { role: 'user', content: `${username} говорит: ${prompt}` }
+        ]
       }, {
-        headers: {
-          'Authorization': `Bearer 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`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': 'Bearer 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' }
       });
 
-      const aiReply = response.data.choices[0].message.content;
-      
-      // Убираем переносы строк для майнкрафт-чата
-      const cleanReply = aiReply.replace(/[\r\n]+/g, ' ');
-      bot.chat(cleanReply);
-
-    } catch (error) {
-      console.error('Ошибка запроса к нейросети:', error.response ? error.response.data : error.message);
-      bot.chat(`${username}, у меня что-то мозг заклинило, не смог ответить.`);
+      const reply = response.data.choices[0].message.content.replace(/[\r\n]+/g, ' ');
+      bot.chat(reply);
+    } catch (err) {
+      console.error(err);
+      bot.chat('Ой, я забыл как думать... попробуй еще раз.');
     }
   }
 });
 
+// Авто-переподключение при дисконнекте
 bot.on('end', (reason) => {
-  console.log(`Бот отключился: ${reason}. Переподключение через 5 секунд...`);
-  setTimeout(() => {
-    process.exit(1); 
-  }, 5000);
+  console.log(`Отключен: ${reason}. Рестарт через 5 секунд...`);
+  setTimeout(() => process.exit(1), 5000);
 });
 
-bot.on('error', (err) => {
-  console.log('Ошибка бота:', err);
-});
+bot.on('error', (err) => console.log('Ошибка:', err));
