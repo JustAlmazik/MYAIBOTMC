@@ -18,29 +18,101 @@ const bot = mineflayer.createBot({
 let following = false;
 let followInterval = null;
 
-// При появлении на сервере
+// Функция для поиска и рубки дерева автономно
+function autoCutWood() {
+  const woodBlock = bot.findBlock({
+    matching: (block) => block && block.name.includes('log'),
+    maxDistance: 10
+  });
+
+  if (!woodBlock) return;
+
+  bot.chat('Нашла дерево, иду рубить!');
+  bot.lookAt(woodBlock.position);
+  
+  const moveInterval = setInterval(() => {
+    if (!bot.entity) {
+      clearInterval(moveInterval);
+      return;
+    }
+    const dist = bot.entity.position.distanceTo(woodBlock.position);
+    if (dist > 3) {
+      bot.setControlState('forward', true);
+      bot.setControlState('sprint', true);
+      if (woodBlock.position.y > bot.entity.position.y + 0.5) {
+        bot.setControlState('jump', true);
+      }
+    } else {
+      bot.setControlState('forward', false);
+      bot.setControlState('sprint', false);
+      bot.setControlState('jump', false);
+      clearInterval(moveInterval);
+      
+      bot.dig(woodBlock, (err) => {
+        if (!err) {
+          bot.chat('Срубила брусчатку/дерево!');
+        }
+      });
+    }
+  }, 200);
+}
+
 bot.on('spawn', async () => {
   console.log('Бот успешно вошел на сервер!');
-  bot.chat('Всем привет! Я в деле. Копаю землю и охочусь на овец!');
+  bot.chat('Всем привет! Я в деле, иду здороваться!');
 
-  // Добываем пару блоков земли сразу после спавна
-  for (let i = 0; i < 2; i++) {
-    try {
-      const dirt = bot.findBlock({ 
-        matching: (b) => b && (b.name === 'dirt' || b.name === 'grass_block'), 
-        maxDistance: 5 
-      });
-      if (dirt) {
-        await bot.dig(dirt);
-        await new Promise(r => setTimeout(r, 1000));
-      }
-    } catch (err) {
-      console.log('Не удалось срубить блок земли при спавне');
+  // Сразу после спавна: находим игрока, подходим, шифтимся и даем ресурсы
+  setTimeout(async () => {
+    const playerEntries = Object.values(bot.players).filter(p => p.username !== bot.username && p.entity);
+    if (playerEntries.length > 0) {
+      const targetPlayer = playerEntries[0].entity;
+      bot.chat(`Привет, ${playerEntries[0].username}! Держи подарок.`);
+
+      // Идем к игроку
+      const approachInterval = setInterval(() => {
+        if (!targetPlayer || !bot.entity) {
+          clearInterval(approachInterval);
+          return;
+        }
+        bot.lookAt(targetPlayer.position.offset(0, targetPlayer.height, 0));
+        const dist = bot.entity.position.distanceTo(targetPlayer.position);
+        if (dist > 3) {
+          bot.setControlState('forward', true);
+        } else {
+          bot.setControlState('forward', false);
+          clearInterval(approachInterval);
+
+          // Шифтимся пару раз (приседаем)
+          let shiftCount = 0;
+          const shiftInterval = setInterval(async () => {
+            shiftCount++;
+            bot.setControlState('sneak', true);
+            await new Promise(r => setTimeout(r, 400));
+            bot.setControlState('sneak', false);
+            
+            if (shiftCount >= 2) {
+              clearInterval(shiftInterval);
+              // Пробуем выбросить предмет из инвентаря (если есть земля/дерево)
+              const itemToDrop = bot.inventory.items().find(item => item.name.includes('dirt') || item.name.includes('log'));
+              if (itemToDrop) {
+                bot.toss(itemToDrop.type, null, 1, (err) => {
+                  if (!err) bot.chat('Вот тебе ресы!');
+                });
+              }
+            }
+          }, 800);
+        }
+      }, 200);
     }
-  }
+  }, 3000);
 });
 
-// Периодическая проверка овец в радиусе 20 блоков (каждые 5 секунд)
+// Автономные задачи (каждые 30 секунд рубит дерево, каждые 7 секунд бьет овец)
+setInterval(() => {
+  if (following) return; // если идет за кем-то, не отвлекаемся
+  autoCutWood();
+}, 30000);
+
 setInterval(() => {
   if (!bot.entity) return;
   const sheep = bot.nearestEntity((e) => e.type === 'mob' && e.mobType === 'Sheep' && e.position.distanceTo(bot.entity.position) < 20);
@@ -48,61 +120,14 @@ setInterval(() => {
     bot.lookAt(sheep.position);
     bot.attack(sheep);
   }
-}, 5000);
+}, 7000);
 
-// Обработка чата и команд
+// Чат и команды
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
-
   const msg = message.toLowerCase().trim();
 
-  // --- КОМАНДА: ДОБЫВАЙ ДОСКИ / РУБИ ДЕРЕВО ---
-  if (msg.includes('добывай доски') || msg.includes('руби дерево')) {
-    bot.chat('Окей, сейчас добуду дерево!');
-    
-    const woodBlock = bot.findBlock({
-      matching: (block) => block && block.name.includes('log'),
-      maxDistance: 10
-    });
-
-    if (!woodBlock) {
-      bot.chat('Я ничего не вижу поблизости в радиусе 10 блоков :(');
-      return;
-    }
-
-    bot.lookAt(woodBlock.position);
-    
-    const moveInterval = setInterval(() => {
-      if (!bot.entity) {
-        clearInterval(moveInterval);
-        return;
-      }
-      const dist = bot.entity.position.distanceTo(woodBlock.position);
-      if (dist > 3) {
-        bot.setControlState('forward', true);
-        bot.setControlState('sprint', true);
-        if (woodBlock.position.y > bot.entity.position.y + 0.5) {
-          bot.setControlState('jump', true);
-        }
-      } else {
-        bot.setControlState('forward', false);
-        bot.setControlState('sprint', false);
-        bot.setControlState('jump', false);
-        clearInterval(moveInterval);
-        
-        bot.dig(woodBlock, (err) => {
-          if (err) {
-            bot.chat('Не получилось срубить дерево!');
-            return;
-          }
-          bot.chat('Готово, дерево мое!');
-        });
-      }
-    }, 200);
-    return;
-  }
-
-  // --- КОМАНДА: СЛЕДУЙ ---
+  // Команда следования
   if (msg.startsWith('!следуй') || msg.includes('иди за мной')) {
     const targetPlayer = bot.players[username]?.entity;
     if (!targetPlayer) {
@@ -143,7 +168,7 @@ bot.on('chat', async (username, message) => {
     return;
   }
 
-  // --- КОМАНДА: СТОП ---
+  // Команда стоп
   if (msg.startsWith('!стоп') || msg === 'стой') {
     following = false;
     if (followInterval) clearInterval(followInterval);
@@ -152,7 +177,7 @@ bot.on('chat', async (username, message) => {
     return;
   }
 
-  // --- ОБЩИЙ ИИ-ОТВЕТ ЧЕРЕЗ GROQ API ---
+  // Общий ИИ-ответ
   try {
     const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
       model: 'llama-3.3-70b-versatile',
