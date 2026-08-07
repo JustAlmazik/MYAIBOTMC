@@ -14,12 +14,14 @@ app.listen(PORT, () => {
   console.log(`Web server is listening on port ${PORT}`);
 });
 
-// 2. Подключение бота к вашему Aternos серверу
+// 2. Подключение бота к Forge/Пиратскому Aternos серверу
 const bot = mineflayer.createBot({
   host: 'atmosph_survival.aternos.me',
   port: 25565, 
   username: 'AIBot',
-  version: '1.20.1'
+  version: '1.20.1', // Убедись, что версия здесь точь-в-точь как на сервере
+  auth: 'offline', // Обязательно для пиратских серверов (cracked)
+  checkTimeoutInterval: 60000 // Увеличиваем таймаут ожидания, чтобы Forge успел прогрузить бота
 });
 
 bot.on('spawn', () => {
