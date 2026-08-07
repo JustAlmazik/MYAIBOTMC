@@ -1,7 +1,8 @@
 const mineflayer = require('mineflayer');
 const express = require('express');
+const axios = require('axios');
 
-// 1. Создаем простой веб-сервер для UptimeRobot, чтобы хостинг не засыпал
+// 1. Веб-сервер для UptimeRobot, чтобы хостинг не усыпал
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -13,10 +14,10 @@ app.listen(PORT, () => {
   console.log(`Web server is listening on port ${PORT}`);
 });
 
-// 2. Подключение бота к твоему Aternos серверу
+// 2. Подключение бота к вашему Aternos серверу
 const bot = mineflayer.createBot({
   host: 'atmosph_survival.aternos.me',
-  port: 25565, // Если у тебя на Aternos другой порт, замени на число из цифр (например, 12345)
+  port: 25565, 
   username: 'AIBot',
   version: '1.20.1'
 });
@@ -26,21 +27,44 @@ bot.on('spawn', () => {
   bot.chat('Всем привет! Я ИИ-компаньон, пишите !ai [текст] для общения со мной.');
 });
 
-bot.on('chat', (username, message) => {
+bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   
   if (message.startsWith('!ai')) {
     const prompt = message.replace('!ai', '').trim();
-    
-    // Сюда можно подключить запрос к OpenAI / DeepSeek / другой нейросети
-    bot.chat(`${username}, я получил твое сообщение: "${prompt}"`);
+    if (!prompt) return;
+
+    try {
+      // Запрос к API Groq (модель Llama 3.3 70B)
+      const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: 'Ты друг-игрок в Minecraft на выживании. Общайся коротко, дружелюбно и по-русски, как обычный пацан в чате игры. Не пиши слишком длинно.' },
+          { role: 'user', content: `${username} говорит тебе: ${prompt}` }
+        ],
+      }, {
+        headers: {
+          'Authorization': `Bearer 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`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const aiReply = response.data.choices[0].message.content;
+      
+      // Убираем переносы строк для майнкрафт-чата
+      const cleanReply = aiReply.replace(/[\r\n]+/g, ' ');
+      bot.chat(cleanReply);
+
+    } catch (error) {
+      console.error('Ошибка запроса к нейросети:', error.response ? error.response.data : error.message);
+      bot.chat(`${username}, у меня что-то мозг заклинило, не смог ответить.`);
+    }
   }
 });
 
 bot.on('end', (reason) => {
   console.log(`Бот отключился: ${reason}. Переподключение через 5 секунд...`);
   setTimeout(() => {
-    // Автоматический ресонект, если Aternos выключился или кикнул
     process.exit(1); 
   }, 5000);
 });
