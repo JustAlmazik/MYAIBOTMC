@@ -1,4 +1,5 @@
 const mineflayer = require('mineflayer');
+const { pathfinding, Movements, goals } = require('mineflayer-pathfinding');
 const express = require('express');
 const axios = require('axios');
 
@@ -15,54 +16,65 @@ const bot = mineflayer.createBot({
   auth: 'offline'
 });
 
+// Загружаем плагин навигации
+bot.loadPlugin(pathfinding);
+
+let following = false;
+let followInterval = null;
+
 bot.on('spawn', () => {
   console.log('Бот успешно вошел на сервер!');
-  bot.chat('Всем здарова! Я тут. Напишите что-нибудь в чат.');
-
-  // Инициатива: бот сам пишет в чат каждые 3 минуты
-  setInterval(() => {
-    const phrases = [
-      'Эй, кто со мной рубить дерево?',
-      'Мне скучно, погнали исследовать мир!',
-      'Народ, кто тут? Дайте знать!',
-      'Кто построит красивый дом рядом со мной?'
-    ];
-    const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
-    bot.chat(randomPhrase);
-  }, 180000);
+  bot.chat('Всем здарова! Я готов бегать за вами. Напишите !следуй');
 });
 
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
 
-  const lowerMsg = message.toLowerCase();
+  const msg = message.toLowerCase().trim();
 
   // Команда следования
-  if (lowerMsg.includes('иди за мной') || lowerMsg === '!следуй') {
-    const target = bot.players[username]?.entity;
-    if (!target) {
-      bot.chat(`${username}, я тебя не вижу!`);
+  if (msg.startsWith('!следуй')) {
+    const targetPlayer = bot.players[username]?.entity;
+    if (!targetPlayer) {
+      bot.chat(`${username}, я тебя не вижу рядом!`);
       return;
     }
-    bot.chat(`${username}, иду за тобой!`);
-    bot.lookAt(target.position);
-    bot.setControlState('forward', true);
+
+    bot.chat(`Бегу за тобой, ${username}!`);
+    following = true;
+
+    const movements = new Movements(bot);
+    bot.pathfinding.setMovements(movements);
+
+    if (followInterval) clearInterval(followInterval);
+
+    followInterval = setInterval(() => {
+      if (!following || !bot.players[username]?.entity) {
+        clearInterval(followInterval);
+        return;
+      }
+      const p = bot.players[username].entity.position;
+      bot.pathfinding.goto(new goals.GoalFollow(bot.players[username].entity, 2))
+        .catch(() => {});
+    }, 1000);
     return;
   }
 
-  // Команда остановки
-  if (lowerMsg === '!стоп' || lowerMsg === 'стой') {
-    bot.clearControlStates();
+  // Команда стоп
+  if (msg.startsWith('!стоп')) {
+    following = false;
+    if (followInterval) clearInterval(followInterval);
+    bot.pathfinding.stop();
     bot.chat('Стою на месте!');
     return;
   }
 
-  // Общий ИИ-ответ через Groq API
+  // Общий ИИ-ответ в чат
   try {
     const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
       model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: 'Ты реальный игрок в Minecraft. Общайся сленгом геймеров, коротко, дружелюбно, по-русски.' },
+        { role: 'system', content: 'Ты реальный игрок в Minecraft. Общайся сленгом геймеров, коротко и по-русски.' },
         { role: 'user', content: `${username} говорит: ${message}` }
       ]
     }, {
