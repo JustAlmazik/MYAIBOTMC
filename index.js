@@ -15,31 +15,32 @@ const bot = mineflayer.createBot({
   auth: 'offline'
 });
 
-let botState = 'wandering'; // wandering, approaching, cutting, crafting, building, returning
+let botState = 'wandering';
 let basePosition = null;
+let isBusy = false; // Защита от наложения задач
 
 bot.on('spawn', () => {
   console.log('Бот успешно вошел на сервер!');
-  basePosition = bot.entity.position.clone(); // Запоминаем точку старта как базу
-  bot.chat('Всем привет! Я начинаю строить свою базу и жить своей жизнью!');
+  if (!basePosition) {
+    basePosition = bot.entity.position.clone();
+  }
+  bot.chat('Всем привет! Я в строю.');
 });
 
-// Основной цикл поведения бота (каждую секунду)
+// Основной свободный цикл (теперь проверяем раз в 3 секунды, чтобы не было флуда)
 setInterval(async () => {
-  if (!bot.entity) return;
+  if (!bot.entity || isBusy) return;
 
-  // 1. Если бот просто бродит по миру
   if (botState === 'wandering') {
-    // Случайное движение и повороты
-    if (Math.random() < 0.1) {
+    if (Math.random() < 0.2) {
       bot.look(Math.random() * Math.PI * 2, 0);
     }
     bot.setControlState('forward', true);
     bot.setControlState('sprint', true);
 
-    // Проверяем, есть ли рядом игроки, чтобы подойти
+    // Проверяем игроков поблизости
     const playerEntries = Object.values(bot.players).filter(p => p.username !== bot.username && p.entity);
-    if (playerEntries.length > 0 && Math.random() < 0.3) {
+    if (playerEntries.length > 0 && Math.random() < 0.2) {
       const targetPlayer = playerEntries[0].entity;
       if (bot.entity.position.distanceTo(targetPlayer.position) < 15) {
         botState = 'approaching';
@@ -48,23 +49,24 @@ setInterval(async () => {
       }
     }
 
-    // Иногда решаем заняться добычей дерева
-    if (Math.random() < 0.15) {
-      botState = 'cutting';
+    // Редкий шанс пойти искать дерево (раз в несколько циклов, чтобы не спамить)
+    if (Math.random() < 0.1) {
+      isBusy = true;
       bot.setControlState('forward', false);
       bot.setControlState('sprint', false);
-      autoSurvivalLoop();
+      await autoSurvivalLoop();
+      isBusy = false;
     }
   }
-}, 1000);
+}, 3000);
 
-// Функция приближения к игроку
 function handleApproachPlayer(targetPlayer) {
-  bot.chat('О, привет! Ищу тебя.');
+  isBusy = true;
   const approachInterval = setInterval(() => {
     if (!targetPlayer || !bot.entity || botState !== 'approaching') {
       clearInterval(approachInterval);
       botState = 'wandering';
+      isBusy = false;
       return;
     }
     bot.lookAt(targetPlayer.position.offset(0, targetPlayer.height, 0));
@@ -74,88 +76,38 @@ function handleApproachPlayer(targetPlayer) {
     } else {
       bot.setControlState('forward', false);
       clearInterval(approachInterval);
-      
-      // Шифтимся в знак приветствия
-      let shiftCount = 0;
-      const shiftInterval = setInterval(async () => {
-        shiftCount++;
-        bot.setControlState('sneak', true);
-        await new Promise(r => setTimeout(r, 300));
-        bot.setControlState('sneak', false);
-        if (shiftCount >= 2) {
-          clearInterval(shiftInterval);
-          botState = 'wandering';
-        }
-      }, 600);
+      botState = 'wandering';
+      isBusy = false;
     }
   }, 200);
 }
 
-// Полный цикл выживания: дерево -> доски -> верстак -> палки -> топор -> стройка -> возвращение
 async function autoSurvivalLoop() {
   try {
-    bot.chat('Ищу дерево для ресурсов!');
     const woodBlock = bot.findBlock({
       matching: (block) => block && block.name.includes('log'),
-      maxDistance: 12
+      maxDistance: 15
     });
 
     if (!woodBlock) {
-      bot.chat('Рядом нет дерева, продолжаю бродить.');
-      botState = 'wandering';
+      // Больше не спамим в чат, если дерева нет, просто идем дальше
       return;
     }
 
-    // Идем к дереву и рубим
+    bot.chat('Ищу дерево и иду рубить!');
     await moveToPosition(woodBlock.position);
     await bot.dig(woodBlock);
-    bot.chat('Добыл блок дерева!');
+    bot.chat('Добыл бревнышко!');
 
-    botState = 'crafting';
-    // Крафтим доски, палки и верстак
-    const logItem = bot.inventory.items().find(i => i.name.includes('log'));
-    if (logItem) {
-      const plankRecipe = bot.recipesFor(bot.registry.itemsByName.oak_planks.id, null, 1, true)[0];
-      if (plankRecipe) {
-        await bot.craft(plankRecipe, 4, null);
-        bot.chat('Скрафтил доски!');
-      }
-
-      const craftingTableRecipe = bot.recipesFor(bot.registry.itemsByName.crafting_table.id, null, 1, true)[0];
-      if (craftingTableRecipe) {
-        await bot.craft(craftingTableRecipe, 1, null);
-        bot.chat('Скрафтил верстак!');
-      }
-    }
-
-    // Возвращаемся к базе для строительства
-    botState = 'returning';
     if (basePosition) {
-      bot.chat('Возвращаюсь к точке базы для строительства домика!');
       await moveToPosition(basePosition);
-      
-      botState = 'building';
-      bot.chat('Строю элементы домика на базе!');
-      // Ставим блок земли или доски как фундамент дома, если он есть в инвентаре
-      const blockToPlace = bot.inventory.items().find(i => i.name.includes('planks') || i.name.includes('dirt'));
-      if (blockToPlace) {
-        const refBlock = bot.blockAt(bot.entity.position.offset(0, -1, 0));
-        if (refBlock) {
-          await bot.equip(blockToPlace, 'hand');
-          await bot.placeBlock(refBlock, { x: 0, y: 1, z: 0 });
-          bot.chat('Поставил блок для дома!');
-        }
-      }
     }
   } catch (err) {
     console.log('Ошибка в цикле выживания:', err.message);
   }
-
-  // Возвращаемся в режим блуждания
   botState = 'wandering';
 }
 
-// Вспомогательная функция движения к позиции
 function moveToPosition(targetPos) {
   return new Promise((resolve) => {
     const moveInterval = setInterval(() => {
@@ -183,25 +135,39 @@ function moveToPosition(targetPos) {
   });
 }
 
-// Чат и команды
+// Обработка чата, сделок и команд
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   const msg = message.toLowerCase().trim();
 
   if (msg.startsWith('!следуй') || msg.includes('иди за мной')) {
     botState = 'following';
+    isBusy = false;
     bot.chat(`Бегу за тобой, ${username}!`);
     return;
   }
 
   if (msg.startsWith('!стоп') || msg === 'стой') {
     botState = 'wandering';
+    isBusy = false;
     bot.clearControlStates();
-    bot.chat('Стою на месте / перехожу в свободный режим!');
+    bot.chat('Стою на месте!');
     return;
   }
 
-  // ИИ-ответ
+  // Выдача земли при запросе
+  if (msg.includes('землю') || msg.includes('дай землю')) {
+    const dirtItem = bot.inventory.items().find(i => i.name.includes('dirt') || i.name.includes('grass'));
+    if (dirtItem) {
+      bot.chat('Держи землю, всё по честноку!');
+      bot.toss(dirtItem.type, null, 1, () => {});
+    } else {
+      bot.chat('У меня нет земли в инвентаре, бро!');
+    }
+    return;
+  }
+
+  // Ответ ИИ
   try {
     const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
       model: 'llama-3.3-70b-versatile',
