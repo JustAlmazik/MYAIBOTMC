@@ -2,24 +2,24 @@ const mineflayer = require('mineflayer');
 const express = require('express');
 const axios = require('axios');
 
-// Веб-сервер для поддержания активности на Render
+// Веб-сервер для Render
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Bot is active'));
 app.listen(PORT, () => console.log(`Web server running on port ${PORT}`));
 
-// Настройки подключения к Server.pro
+// Настройки подключения к Magmanode
 const bot = mineflayer.createBot({
-  host: 'aiservermc.lets.game',
-  port: 2000,          // Твой порт с Server.pro
+  host: 'dynamic-10.magmanode.com',
+  port: 25790,         // Твой новый порт
   username: 'AIBot',
-  version: '1.20.1',   // Убедись, что на сервере 1.20.1
-  auth: 'offline'
+  version: '1.20.1',   // Должно совпадать с версией на Magmanode
+  auth: 'offline'      // Обязательно для пиратки
 });
 
 bot.on('spawn', () => {
-  console.log('Бот успешно вошел в мир!');
-  bot.chat('Всем привет! Я ИИ-бот. Пишите !ai [вопрос] для связи.');
+  console.log('Бот успешно вошел на Magmanode!');
+  bot.chat('Всем привет! Я ИИ-бот. Пишите !ai [вопрос] чтобы пообщаться.');
 });
 
 bot.on('chat', async (username, message) => {
@@ -33,7 +33,7 @@ bot.on('chat', async (username, message) => {
       const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: 'Ты ИИ-игрок в Майнкрафт. Пиши коротко, дружелюбно, на русском.' },
+          { role: 'system', content: 'Ты ИИ-игрок в Майнкрафт. Общайся дружелюбно, коротко и по-русски.' },
           { role: 'user', content: `${username} говорит: ${prompt}` }
         ]
       }, {
@@ -49,10 +49,9 @@ bot.on('chat', async (username, message) => {
   }
 });
 
-// Авто-переподключение
 bot.on('end', (reason) => {
   console.log(`Дисконнект: ${reason}. Рестарт через 5 секунд...`);
   setTimeout(() => process.exit(1), 5000);
 });
 
-bot.on('error', (err) => console.log('Ошибка бота:', err));
+bot.on('error', (err) => console.log('Ошибка:', err));
