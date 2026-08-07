@@ -1,5 +1,4 @@
 const mineflayer = require('mineflayer');
-const { pathfinding, Movements, goals } = require('mineflayer-pathfinding');
 const express = require('express');
 const axios = require('axios');
 
@@ -15,9 +14,6 @@ const bot = mineflayer.createBot({
   version: '1.20.1',
   auth: 'offline'
 });
-
-// Загружаем плагин навигации
-bot.loadPlugin(pathfinding);
 
 let following = false;
 let followInterval = null;
@@ -43,20 +39,34 @@ bot.on('chat', async (username, message) => {
     bot.chat(`Бегу за тобой, ${username}!`);
     following = true;
 
-    const movements = new Movements(bot);
-    bot.pathfinding.setMovements(movements);
-
     if (followInterval) clearInterval(followInterval);
 
     followInterval = setInterval(() => {
-      if (!following || !bot.players[username]?.entity) {
+      const target = bot.players[username]?.entity;
+      if (!following || !target) {
         clearInterval(followInterval);
+        bot.clearControlStates();
         return;
       }
-      const p = bot.players[username].entity.position;
-      bot.pathfinding.goto(new goals.GoalFollow(bot.players[username].entity, 2))
-        .catch(() => {});
-    }, 1000);
+
+      // Смотрим на игрока и идем вперед
+      bot.lookAt(target.position.offset(0, target.height, 0));
+      const distance = bot.entity.position.distanceTo(target.position);
+
+      if (distance > 3) {
+        bot.setControlState('forward', true);
+        bot.setControlState('sprint', true);
+        if (target.position.y > bot.entity.position.y + 0.5) {
+          bot.setControlState('jump', true);
+        } else {
+          bot.setControlState('jump', false);
+        }
+      } else {
+        bot.setControlState('forward', false);
+        bot.setControlState('sprint', false);
+        bot.setControlState('jump', false);
+      }
+    }, 200);
     return;
   }
 
@@ -64,7 +74,7 @@ bot.on('chat', async (username, message) => {
   if (msg.startsWith('!стоп')) {
     following = false;
     if (followInterval) clearInterval(followInterval);
-    bot.pathfinding.stop();
+    bot.clearControlStates();
     bot.chat('Стою на месте!');
     return;
   }
