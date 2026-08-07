@@ -17,17 +17,34 @@ const bot = mineflayer.createBot({
 
 let botState = 'wandering';
 let basePosition = null;
-let isBusy = false; // Защита от наложения задач
+let isBusy = false;
 
 bot.on('spawn', () => {
   console.log('Бот успешно вошел на сервер!');
   if (!basePosition) {
     basePosition = bot.entity.position.clone();
   }
-  bot.chat('Всем привет! Я в строю.');
+  bot.chat('Всем привет! Я учла ошибки, больше с пауками не дружу, буду бить в ответ!');
 });
 
-// Основной свободный цикл (теперь проверяем раз в 3 секунды, чтобы не было флуда)
+// --- СИСТЕМА САМООБОРОНЫ (если бота кто-то ударил) ---
+bot.on('hurt', () => {
+  if (!bot.entity) return;
+  // Ищем ближайшего враждебного моба или игрока вокруг
+  const attacker = bot.nearestEntity((e) => 
+    (e.type === 'mob' || e.type === 'player') && 
+    e.username !== bot.username && 
+    e.position.distanceTo(bot.entity.position) < 6
+  );
+
+  if (attacker) {
+    bot.chat('Ай! Получай по заслугам!');
+    bot.lookAt(attacker.position);
+    bot.attack(attacker);
+  }
+});
+
+// Основной свободный цикл
 setInterval(async () => {
   if (!bot.entity || isBusy) return;
 
@@ -35,10 +52,20 @@ setInterval(async () => {
     if (Math.random() < 0.2) {
       bot.look(Math.random() * Math.PI * 2, 0);
     }
+    
+    // Двигаемся вперед с проверкой препятствий
     bot.setControlState('forward', true);
     bot.setControlState('sprint', true);
 
-    // Проверяем игроков поблизости
+    // Если перед ботом блок (препятствие в 1 блок), автоматически прыгаем
+    const blockInFront = bot.blockAt(bot.entity.position.offset(bot.entity.velocity.x > 0 ? 1 : 0, 0, bot.entity.velocity.z > 0 ? 1 : 0));
+    if (blockInFront && blockInFront.name !== 'air') {
+      bot.setControlState('jump', true);
+    } else {
+      bot.setControlState('jump', false);
+    }
+
+    // Проверяем игроков поблизости для приветствия
     const playerEntries = Object.values(bot.players).filter(p => p.username !== bot.username && p.entity);
     if (playerEntries.length > 0 && Math.random() < 0.2) {
       const targetPlayer = playerEntries[0].entity;
@@ -49,11 +76,12 @@ setInterval(async () => {
       }
     }
 
-    // Редкий шанс пойти искать дерево (раз в несколько циклов, чтобы не спамить)
+    // Решаем пойти добыть дерево
     if (Math.random() < 0.1) {
       isBusy = true;
       bot.setControlState('forward', false);
       bot.setControlState('sprint', false);
+      bot.setControlState('jump', false);
       await autoSurvivalLoop();
       isBusy = false;
     }
@@ -89,10 +117,7 @@ async function autoSurvivalLoop() {
       maxDistance: 15
     });
 
-    if (!woodBlock) {
-      // Больше не спамим в чат, если дерева нет, просто идем дальше
-      return;
-    }
+    if (!woodBlock) return;
 
     bot.chat('Ищу дерево и иду рубить!');
     await moveToPosition(woodBlock.position);
@@ -121,8 +146,13 @@ function moveToPosition(targetPos) {
       if (dist > 2) {
         bot.setControlState('forward', true);
         bot.setControlState('sprint', true);
-        if (targetPos.y > bot.entity.position.y + 0.5) {
+        
+        // Прыжок, если впереди блок или цель выше
+        const frontBlock = bot.blockAt(bot.entity.position.offset(0, 0, 1));
+        if ((frontBlock && frontBlock.name !== 'air') || targetPos.y > bot.entity.position.y + 0.5) {
           bot.setControlState('jump', true);
+        } else {
+          bot.setControlState('jump', false);
         }
       } else {
         bot.setControlState('forward', false);
@@ -135,7 +165,7 @@ function moveToPosition(targetPos) {
   });
 }
 
-// Обработка чата, сделок и команд
+// Обработка чата и команд
 bot.on('chat', async (username, message) => {
   if (username === bot.username) return;
   const msg = message.toLowerCase().trim();
@@ -155,7 +185,6 @@ bot.on('chat', async (username, message) => {
     return;
   }
 
-  // Выдача земли при запросе
   if (msg.includes('землю') || msg.includes('дай землю')) {
     const dirtItem = bot.inventory.items().find(i => i.name.includes('dirt') || i.name.includes('grass'));
     if (dirtItem) {
@@ -167,7 +196,6 @@ bot.on('chat', async (username, message) => {
     return;
   }
 
-  // Ответ ИИ
   try {
     const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
       model: 'llama-3.3-70b-versatile',
