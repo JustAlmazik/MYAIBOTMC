@@ -20,7 +20,7 @@ let followInterval = null;
 
 bot.on('spawn', () => {
   console.log('Бот успешно вошел на сервер!');
-  bot.chat('Всем здарова! Я готов бегать за вами. Напишите !следуй');
+  bot.chat('Всем здарова! Напиши !следуй или "добывай доски".');
 });
 
 bot.on('chat', async (username, message) => {
@@ -28,8 +28,54 @@ bot.on('chat', async (username, message) => {
 
   const msg = message.toLowerCase().trim();
 
-  // Команда следования
-  if (msg.startsWith('!следуй')) {
+  // --- КОМАНДА: ДОБЫВАЙ ДОСКИ / РУБИ ДЕРЕВО ---
+  if (msg.includes('добывай доски') || msg.includes('руби дерево')) {
+    bot.chat('Окей, сейчас добуду дерево!');
+    
+    const woodBlock = bot.findBlock({
+      matching: (block) => block && block.name.includes('log'),
+      maxDistance: 10
+    });
+
+    if (!woodBlock) {
+      bot.chat('Я ничего не вижу поблизости в радиусе 10 блоков :(');
+      return;
+    }
+
+    bot.lookAt(woodBlock.position);
+    
+    const moveInterval = setInterval(() => {
+      if (!bot.entity) {
+        clearInterval(moveInterval);
+        return;
+      }
+      const dist = bot.entity.position.distanceTo(woodBlock.position);
+      if (dist > 3) {
+        bot.setControlState('forward', true);
+        bot.setControlState('sprint', true);
+        if (woodBlock.position.y > bot.entity.position.y + 0.5) {
+          bot.setControlState('jump', true);
+        }
+      } else {
+        bot.setControlState('forward', false);
+        bot.setControlState('sprint', false);
+        bot.setControlState('jump', false);
+        clearInterval(moveInterval);
+        
+        bot.dig(woodBlock, (err) => {
+          if (err) {
+            bot.chat('Не получилось срубить дерево!');
+            return;
+          }
+          bot.chat('Готово, доски мои!');
+        });
+      }
+    }, 200);
+    return;
+  }
+
+  // --- КОМАНДА: СЛЕДУЙ ---
+  if (msg.startsWith('!следуй') || msg.includes('иди за мной')) {
     const targetPlayer = bot.players[username]?.entity;
     if (!targetPlayer) {
       bot.chat(`${username}, я тебя не вижу рядом!`);
@@ -43,13 +89,12 @@ bot.on('chat', async (username, message) => {
 
     followInterval = setInterval(() => {
       const target = bot.players[username]?.entity;
-      if (!following || !target) {
+      if (!following || !target || !bot.entity) {
         clearInterval(followInterval);
         bot.clearControlStates();
         return;
       }
 
-      // Смотрим на игрока и идем вперед
       bot.lookAt(target.position.offset(0, target.height, 0));
       const distance = bot.entity.position.distanceTo(target.position);
 
@@ -70,8 +115,8 @@ bot.on('chat', async (username, message) => {
     return;
   }
 
-  // Команда стоп
-  if (msg.startsWith('!стоп')) {
+  // --- КОМАНДА: СТОП ---
+  if (msg.startsWith('!стоп') || msg === 'стой') {
     following = false;
     if (followInterval) clearInterval(followInterval);
     bot.clearControlStates();
@@ -79,12 +124,12 @@ bot.on('chat', async (username, message) => {
     return;
   }
 
-  // Общий ИИ-ответ в чат
+  // --- ОБЩИЙ ИИ-ОТВЕТ ЧЕРЕЗ GROQ API ---
   try {
     const response = await axios.post('https://api.groq.com/openai/v1/chat/completions', {
       model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: 'Ты реальный игрок в Minecraft. Общайся сленгом геймеров, коротко и по-русски.' },
+        { role: 'system', content: 'Ты игрок в Minecraft. Общайся коротко, дружелюбно и по-русски.' },
         { role: 'user', content: `${username} говорит: ${message}` }
       ]
     }, {
