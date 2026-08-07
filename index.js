@@ -25,10 +25,10 @@ bot.on('spawn', () => {
   if (!basePosition) {
     basePosition = bot.entity.position.clone();
   }
-  bot.chat('Всем привет! Я абсолютный хищник: вижу моба до 80 блоков — бегу и уничтожаю, а потом ем мясо!');
+  bot.chat('Всем привет! Я абсолютный хищник, зомби теперь не уйдут от возмездия!');
 });
 
-// Система самообороны (если кто-то ударил бота)
+// Система самообороны (если бота кто-то ударил)
 bot.on('hurt', () => {
   if (!bot.entity) return;
   const attacker = bot.nearestEntity((e) => 
@@ -70,7 +70,7 @@ setInterval(async () => {
 
   if (isBusy) return;
 
-  // Если в режиме охоты и есть цель
+  // Если в режиме охоты и есть цель (исправленный ближний бой без кружения)
   if (botState === 'hunting' && currentTarget) {
     if (!currentTarget.isValid || currentTarget.position.distanceTo(bot.entity.position) > 100) {
       botState = 'wandering';
@@ -81,10 +81,9 @@ setInterval(async () => {
     bot.lookAt(currentTarget.position.offset(0, currentTarget.height / 2, 0));
     const dist = bot.entity.position.distanceTo(currentTarget.position);
 
-    if (dist > 2.5) {
+    if (dist > 3) {
       bot.setControlState('forward', true);
       bot.setControlState('sprint', true);
-      // Прыгаем, если есть препятствие или цель выше
       const frontBlock = bot.blockAt(bot.entity.position.offset(0, 0, 1));
       if ((frontBlock && frontBlock.name !== 'air') || currentTarget.position.y > bot.entity.position.y + 0.5) {
         bot.setControlState('jump', true);
@@ -92,10 +91,16 @@ setInterval(async () => {
         bot.setControlState('jump', false);
       }
     } else {
+      // Подошли вплотную — останавливаемся и бьем без остановки
       bot.setControlState('forward', false);
       bot.setControlState('sprint', false);
       bot.setControlState('jump', false);
-      bot.attack(currentTarget);
+      
+      try {
+        bot.attack(currentTarget);
+      } catch (e) {
+        // Игнорируем кулдаун атаки
+      }
     }
     return;
   }
@@ -116,7 +121,7 @@ setInterval(async () => {
       bot.setControlState('jump', false);
     }
 
-    // Ищем мобов в радиусе 80 блоков (любых врагов или животных для охоты)
+    // Ищем мобов в радиусе 80 блоков для охоты
     const victim = bot.nearestEntity((e) => 
       e.type === 'mob' && 
       e.position.distanceTo(bot.entity.position) <= 80 &&
@@ -126,7 +131,7 @@ setInterval(async () => {
     if (victim) {
       botState = 'hunting';
       currentTarget = victim;
-      bot.chat(`Заметил цель (${victim.mobType || 'моб'}), бегу настигать!`);
+      bot.chat(`Заметил цель (${victim.mobType || 'моб'}), бегу уничтожать!`);
       return;
     }
 
